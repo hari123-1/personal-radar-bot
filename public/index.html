@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Personal Tech Radar</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1f2933;
+      --muted: #616e7c;
+      --line: #e4e7eb;
+      --brand: #0b6bcb;
+      --ok: #166534;
+      --ok-bg: #dcfce7;
+      --warn: #92400e;
+      --warn-bg: #fef3c7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: var(--ink);
+      padding: 1.5rem;
+    }
+    main { width: min(680px, 100%); }
+    .card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+    h1 { margin: 0 0 0.25rem; font-size: 1.6rem; }
+    .subtitle { margin: 0 0 1.5rem; color: var(--muted); }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 0;
+      border-top: 1px solid var(--line);
+      font-size: 0.95rem;
+    }
+    .row:first-of-type { border-top: 0; }
+    .label { color: var(--muted); }
+    .value { text-align: right; font-weight: 600; }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .badge.ok { background: var(--ok-bg); color: var(--ok); }
+    .badge.warn { background: var(--warn-bg); color: var(--warn); }
+    .actions { margin-top: 1.75rem; display: grid; gap: 0.75rem; }
+    form { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+    input {
+      flex: 1 1 220px;
+      padding: 0.7rem 0.85rem;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      font: inherit;
+    }
+    button {
+      padding: 0.7rem 1rem;
+      border: 0;
+      border-radius: 9px;
+      background: var(--brand);
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: #095bb0; }
+    .hint { margin: 0; color: var(--muted); font-size: 0.85rem; }
+    .error { color: #b91c1c; }
+    footer { margin-top: 1.25rem; text-align: center; color: var(--muted); font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>📡 Personal Tech Radar</h1>
+      <p class="subtitle">Daily Hacker News + Dev.to digest, summarized by Gemini and delivered to Telegram.</p>
+
+      <div class="row">
+        <span class="label">Service</span>
+        <span class="value" id="serviceStatus"><span class="badge warn">checking…</span></span>
+      </div>
+      <div class="row">
+        <span class="label">Schedule</span>
+        <span class="value">Daily · 08:00 IST</span>
+      </div>
+      <div class="row">
+        <span class="label">Next run</span>
+        <span class="value" id="nextRun">—</span>
+      </div>
+      <div class="row">
+        <span class="label">Sources</span>
+        <span class="value">Hacker News · Dev.to</span>
+      </div>
+      <div class="row">
+        <span class="label">Model</span>
+        <span class="value" id="model">gemini-3.8-flash → 3.5-flash-lite</span>
+      </div>
+      <div class="row">
+        <span class="label">Telegram</span>
+        <span class="value" id="telegramStatus">—</span>
+      </div>
+
+      <div class="actions">
+        <form id="testForm">
+          <input id="secret" type="password" placeholder="TEST_SECRET" autocomplete="current-password" required>
+          <button type="submit">Run test now</button>
+        </form>
+        <p class="hint">The test endpoint runs the digest once and also sends it to Telegram. It is protected by the secret you set in <code>TEST_SECRET</code>.</p>
+      </div>
+    </section>
+    <footer>Zero npm dependencies · Netlify Functions · Native fetch</footer>
+  </main>
+
+  <script>
+    const serviceStatus = document.getElementById("serviceStatus");
+    const nextRun = document.getElementById("nextRun");
+    const model = document.getElementById("model");
+    const telegramStatus = document.getElementById("telegramStatus");
+    const form = document.getElementById("testForm");
+    const secret = document.getElementById("secret");
+
+    fetch("/api/status")
+      .then((response) => {
+        if (!response.ok) throw new Error("Status endpoint returned " + response.status);
+        return response.json();
+      })
+      .then((data) => {
+        serviceStatus.innerHTML = '<span class="badge ok">operational</span>';
+        nextRun.textContent = data.nextRunIst || "—";
+        model.textContent =
+          (data.geminiModel || "gemini-3.8-flash") +
+          (data.geminiFallbackModel ? " → " + data.geminiFallbackModel : "");
+        telegramStatus.innerHTML = data.telegramConfigured
+          ? '<span class="badge ok">configured</span>'
+          : '<span class="badge warn">not configured</span>';
+      })
+      .catch((error) => {
+        serviceStatus.innerHTML = '<span class="badge warn">unknown</span>';
+        nextRun.textContent = "unavailable";
+        telegramStatus.textContent = "unknown";
+        console.error(error);
+      });
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const value = secret.value.trim();
+      if (!value) {
+        secret.focus();
+        return;
+      }
+      window.location.href = "/test?secret=" + encodeURIComponent(value);
+    });
+  </script>
+</body>
+</html>

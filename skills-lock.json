@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "skills": {
+    "netlify-functions": {
+      "source": "netlify/context-and-tools",
+      "commit": "759b1c8d0745e2ef4cccc347bb487bdd75e3cf6f",
+      "sourceType": "github",
+      "skillPath": "skills/netlify-functions/SKILL.md",
+      "computedHash": "5efa9a5487f6423eb487e67ea2f9ed17f6c74650a9a62913a16591080a55dc85"
+    }
+  }
+}
