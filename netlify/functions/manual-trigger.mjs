@@ -54,10 +54,10 @@ function htmlPage(result) {
       <p>Status: <span class="badge ${result.ok ? "ok" : "fail"}">${result.ok ? "SUCCESS" : "FAILED"}</span></p>
       <p>Duration: ${result.durationMs ?? "?"} ms</p>
       <p>Sources: Hacker News ${result.sources?.hackerNews ?? 0}, Dev.to ${result.sources?.devTo ?? 0}</p>
-      <p>Gemini: ${
-        result.gemini?.used
-          ? `${escapeHtml(result.gemini.model)}${
-              result.gemini.fallback ? " (fallback model)" : ""
+      <p>AI: ${
+        result.ai?.used
+          ? `${escapeHtml(result.ai.provider)} / ${escapeHtml(result.ai.model)}${
+              result.ai.fallback ? " (fallback)" : ""
             }`
           : "not used (raw link digest)"
       }</p>

@@ -11,18 +11,20 @@ const HN_FRONT_PAGE = "https://hn.algolia.com/api/v1/search?tags=front_page";
 const DEVTO_TOP = "https://dev.to/api/articles?per_page=5&top=1";
 const DEVTO_LATEST = "https://dev.to/api/articles?per_page=5";
 
-export const GEMINI_MODEL = "gemini-3.8-flash";
+export const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+export const GROQ_PRIMARY_MODEL = "openai/gpt-oss-120b";
+export const GROQ_FALLBACK_MODEL = "openai/gpt-oss-20b";
 export const GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite";
 
 const GEMINI_ENDPOINT = (model) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-// Fast path: try the primary model twice (retry only on fast failures),
-// then immediately switch to the lightweight fallback. A timeout skips the
-// retry so the whole run stays within the 5-second budget.
-const GEMINI_PLAN = [
-  { model: GEMINI_MODEL, attempts: 2, timeoutMs: 1200 },
-  { model: GEMINI_FALLBACK_MODEL, attempts: 1, timeoutMs: 2200 },
+// AI chain, in order. Each model gets one attempt; if it is slow or fails,
+// the next provider/model is tried immediately.
+const AI_PLAN = [
+  { provider: "groq", model: GROQ_PRIMARY_MODEL, timeoutMs: 4000 },
+  { provider: "groq", model: GROQ_FALLBACK_MODEL, timeoutMs: 3000 },
+  { provider: "gemini", model: GEMINI_FALLBACK_MODEL, timeoutMs: 3500 },
 ];
 
 /** Read an environment variable, preferring Netlify's scoped runtime API. */
@@ -147,6 +149,49 @@ Stories:
 ${list}`;
 }
 
+async function callGroqModel(model, prompt, timeoutMs) {
+  const apiKey = requireEnv("GROQ_API_KEY");
+  let response;
+  try {
+    response = await fetch(GROQ_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+        max_tokens: 1000,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error?.name === "TimeoutError" || error?.name === "AbortError") {
+      const timeoutError = new Error(
+        `${model} timed out after ${timeoutMs}ms`,
+      );
+      timeoutError.timedOut = true;
+      throw timeoutError;
+    }
+    throw error;
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.error?.message || response.statusText || "Unknown error";
+    throw new Error(`${model} ${response.status}: ${message}`);
+  }
+
+  const text = data?.choices?.[0]?.message?.content?.trim();
+  if (!text) {
+    throw new Error(`${model} returned an empty response`);
+  }
+
+  return text;
+}
+
 async function callGeminiModel(model, prompt, timeoutMs) {
   const apiKey = requireEnv("GEMINI_API_KEY");
   let response;
@@ -199,51 +244,44 @@ async function callGeminiModel(model, prompt, timeoutMs) {
   return text;
 }
 
-async function askGemini(prompt) {
+async function askAI(prompt) {
   const errors = [];
   const attempts = [];
 
-  for (const entry of GEMINI_PLAN) {
-    for (let attempt = 1; attempt <= entry.attempts; attempt += 1) {
-      const attemptStartedAt = Date.now();
-      try {
-        const text = await callGeminiModel(entry.model, prompt, entry.timeoutMs);
-        attempts.push({
-          model: entry.model,
-          attempt,
-          ok: true,
-          durationMs: Date.now() - attemptStartedAt,
-        });
-        return {
-          text,
-          model: entry.model,
-          fallback: entry.model !== GEMINI_MODEL,
-          attempts,
-        };
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
-        attempts.push({
-          model: entry.model,
-          attempt,
-          ok: false,
-          durationMs: Date.now() - attemptStartedAt,
-          error: message,
-        });
-        errors.push(`attempt ${attempt} (${entry.model}): ${message}`);
-        // A timeout means the model is slow; retrying it would burn the
-        // 5-second budget. Move straight to the next (faster) model.
-        if (error?.timedOut) {
-          break;
-        }
-        if (attempt < entry.attempts) {
-          await sleep(200);
-        }
-      }
+  for (const entry of AI_PLAN) {
+    const attemptStartedAt = Date.now();
+    try {
+      const text =
+        entry.provider === "groq"
+          ? await callGroqModel(entry.model, prompt, entry.timeoutMs)
+          : await callGeminiModel(entry.model, prompt, entry.timeoutMs);
+      attempts.push({
+        provider: entry.provider,
+        model: entry.model,
+        ok: true,
+        durationMs: Date.now() - attemptStartedAt,
+      });
+      return {
+        text,
+        provider: entry.provider,
+        model: entry.model,
+        fallback: entry.model !== GROQ_PRIMARY_MODEL,
+        attempts,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      attempts.push({
+        provider: entry.provider,
+        model: entry.model,
+        ok: false,
+        durationMs: Date.now() - attemptStartedAt,
+        error: message,
+      });
+      errors.push(`${entry.provider}/${entry.model}: ${message}`);
     }
   }
 
-  const failure = new Error(`All Gemini models failed: ${errors.join(" | ")}`);
+  const failure = new Error(`All AI models failed: ${errors.join(" | ")}`);
   failure.attempts = attempts;
   throw failure;
 }
@@ -259,7 +297,7 @@ function buildFallbackDigest(stories) {
     "📡 Personal Tech Radar",
     nowIst,
     "",
-    "Gemini was unavailable, so here are today's top links:",
+    "AI summarization was unavailable, so here are today's top links:",
     "",
   ];
 
@@ -375,8 +413,8 @@ export function getNextRun(now = new Date()) {
 }
 
 /**
- * Fetch the top stories, summarize them with Gemini, and deliver them to
- * Telegram. Returns a JSON-serializable result object.
+ * Fetch the top stories, summarize them with the Groq/Gemini chain, and
+ * deliver them to Telegram. Returns a JSON-serializable result object.
  */
 export async function runRadar({ dryRun = false, includeSummary = false } = {}) {
   const startedAt = Date.now();
@@ -384,7 +422,7 @@ export async function runRadar({ dryRun = false, includeSummary = false } = {}) 
     ok: false,
     startedAt: new Date(startedAt).toISOString(),
     sources: { hackerNews: 0, devTo: 0 },
-    gemini: { model: GEMINI_MODEL, used: false, fallback: false },
+    ai: { provider: null, model: null, used: false, fallback: false },
     telegram: [],
     warnings: [],
     timings: {},
@@ -417,22 +455,23 @@ export async function runRadar({ dryRun = false, includeSummary = false } = {}) 
     }
 
     let summary;
-    const geminiStartedAt = Date.now();
+    const aiStartedAt = Date.now();
     try {
-      const gemini = await askGemini(buildPrompt(stories));
-      summary = gemini.text;
-      result.gemini.used = true;
-      result.gemini.model = gemini.model;
-      result.gemini.fallback = gemini.fallback;
-      result.gemini.attempts = gemini.attempts;
+      const ai = await askAI(buildPrompt(stories));
+      summary = ai.text;
+      result.ai.used = true;
+      result.ai.provider = ai.provider;
+      result.ai.model = ai.model;
+      result.ai.fallback = ai.fallback;
+      result.ai.attempts = ai.attempts;
     } catch (error) {
-      result.gemini.attempts = error?.attempts ?? [];
+      result.ai.attempts = error?.attempts ?? [];
       result.warnings.push(
-        `Gemini: ${error instanceof Error ? error.message : String(error)}`,
+        `AI: ${error instanceof Error ? error.message : String(error)}`,
       );
       summary = buildFallbackDigest(stories);
     } finally {
-      result.timings.geminiMs = Date.now() - geminiStartedAt;
+      result.timings.aiMs = Date.now() - aiStartedAt;
     }
 
     result.summaryLength = summary.length;

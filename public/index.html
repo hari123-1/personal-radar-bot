@@ -106,8 +106,8 @@
         <span class="value">Hacker News · Dev.to</span>
       </div>
       <div class="row">
-        <span class="label">Model</span>
-        <span class="value" id="model">gemini-3.8-flash → 3.5-flash-lite</span>
+        <span class="label">AI chain</span>
+        <span class="value" id="model">Groq gpt-oss-120b → Groq gpt-oss-20b → Gemini 3.5-flash-lite</span>
       </div>
       <div class="row">
         <span class="label">Telegram</span>
@@ -142,8 +142,8 @@
         serviceStatus.innerHTML = '<span class="badge ok">operational</span>';
         nextRun.textContent = data.nextRunIst || "—";
         model.textContent =
-          (data.geminiModel || "gemini-3.8-flash") +
-          (data.geminiFallbackModel ? " → " + data.geminiFallbackModel : "");
+          data.aiChain ||
+          "Groq gpt-oss-120b → Groq gpt-oss-20b → Gemini 3.5-flash-lite";
         telegramStatus.innerHTML = data.telegramConfigured
           ? '<span class="badge ok">configured</span>'
           : '<span class="badge warn">not configured</span>';

@@ -3,7 +3,7 @@
 A $0 personal tech-news digest running on the **Netlify Free Plan**.
 
 - Fetches the top 5 stories from **Hacker News** and the top 5 from **Dev.to**.
-- Asks **Google Gemini (`gemini-3.8-flash`)** to produce a clean plain-text digest, with an immediate fallback to **`gemini-3.5-flash-lite`** when the primary model is busy.
+- Asks **Groq (`openai/gpt-oss-120b`)** to produce a clean plain-text digest, with a fast fallback to **Groq `openai/gpt-oss-20b`**, then **Gemini `gemini-3.5-flash-lite`** as the last AI fallback before raw links.
 - Sends the digest to **Telegram**.
 - Runs automatically **every day at 08:00 IST** via a Netlify scheduled function.
 - Includes a **secret-protected manual test endpoint** and a small **status homepage**.
@@ -16,7 +16,7 @@ A $0 personal tech-news digest running on the **Netlify Free Plan**.
 ├─ netlify/
 │  └─ functions/
 │     ├─ _lib/
-│     │  └─ radar.mjs          # Shared fetch / Gemini / Telegram logic
+│     │  └─ radar.mjs          # Shared fetch / Groq + Gemini / Telegram logic
 │     ├─ daily-digest.mjs      # Scheduled: 30 2 * * * UTC (08:00 IST)
 │     ├─ manual-trigger.mjs    # GET /test?secret=... (manual run)
 │     └─ status.mjs            # GET /api/status (JSON used by homepage)
@@ -34,7 +34,8 @@ Set these in **Netlify → Site settings → Build & deploy → Environment vari
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GEMINI_API_KEY` | yes | Google AI Studio / Gemini API key |
+| `GROQ_API_KEY` | yes | Groq API key (primary AI) |
+| `GEMINI_API_KEY` | yes | Google AI Studio / Gemini key (last AI fallback) |
 | `TELEGRAM_BOT_TOKEN` | yes | Bot token from `@BotFather` |
 | `TELEGRAM_CHAT_IDS` | yes | Comma-separated numeric Telegram chat IDs |
 | `TEST_SECRET` | yes | Secret for `/test?secret=...` |
@@ -58,7 +59,7 @@ number. A phone number such as `9876543210` will return
 cp .env.example .env
 # fill in the values in .env
 
-# Dry run: fetch stories + call Gemini, but do not send to Telegram
+# Dry run: fetch stories + call the AI chain, but do not send to Telegram
 node --env-file=.env -e "import('./netlify/functions/_lib/radar.mjs').then(m => m.runRadar({ dryRun: true, includeSummary: true }).then(r => console.log(JSON.stringify(r, null, 2))))"
 
 # Full run: fetch, summarize, and send to Telegram
@@ -105,18 +106,21 @@ HTML result page when opened in a browser. It returns JSON for API clients.
 
 - operational status
 - next scheduled run in IST
-- whether Telegram is configured
+- the active AI fallback chain
+- whether Groq, Gemini, and Telegram are configured
 - a form that triggers `/test` with your secret
 
 ## Notes
 
-- Gemini `gemini-3.8-flash` can occasionally return HTTP `503` under high load.
-  The digest makes **one quick retry** on `gemini-3.8-flash`, then immediately
-  falls back to the fast free-tier model `gemini-3.5-flash-lite`. If both models
-  fail, it sends a plain list of links so you still receive the day's stories.
-  A slow primary attempt (timeout) skips the retry entirely, so the manual
-  `/test` run typically finishes in about **4–5 seconds**, well under
-  Netlify's 10s HTTP limit.
+- The AI chain is tried in order:
+  1. Groq `openai/gpt-oss-120b` — 4000ms timeout
+  2. Groq `openai/gpt-oss-20b` — 3000ms timeout
+  3. Gemini `gemini-3.5-flash-lite` — 3500ms timeout
+- If all three fail or time out, the bot sends a plain list of links so you still
+  receive the day's stories. A fast Groq response typically finishes in about
+  **2–4 seconds**. The theoretical worst case is ~10.5s of AI time (all three
+  timeouts), which is at the edge of Netlify's HTTP limit; in practice Groq
+  responds or fails quickly.
 - Hacker News and Dev.to are fetched concurrently; a failure from one source does
   not block the other. Hacker News uses the Algolia front-page API so all five
   stories arrive in a single request instead of six Firebase requests.

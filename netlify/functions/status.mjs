@@ -1,7 +1,8 @@
 import {
   env,
   getNextRun,
-  GEMINI_MODEL,
+  GROQ_PRIMARY_MODEL,
+  GROQ_FALLBACK_MODEL,
   GEMINI_FALLBACK_MODEL,
 } from "./_lib/radar.mjs";
 
@@ -24,8 +25,26 @@ export default async () => {
       timeStyle: "long",
     }),
     sources: ["Hacker News", "Dev.to"],
-    geminiModel: GEMINI_MODEL,
-    geminiFallbackModel: GEMINI_FALLBACK_MODEL,
+    aiChain: `Groq ${GROQ_PRIMARY_MODEL} → Groq ${GROQ_FALLBACK_MODEL} → Gemini ${GEMINI_FALLBACK_MODEL}`,
+    ai: {
+      primary: {
+        provider: "Groq",
+        model: GROQ_PRIMARY_MODEL,
+        timeoutMs: 4000,
+      },
+      fallback: {
+        provider: "Groq",
+        model: GROQ_FALLBACK_MODEL,
+        timeoutMs: 3000,
+      },
+      lastResort: {
+        provider: "Google Gemini",
+        model: GEMINI_FALLBACK_MODEL,
+        timeoutMs: 3500,
+      },
+    },
+    groqConfigured: Boolean(env("GROQ_API_KEY")),
+    geminiConfigured: Boolean(env("GEMINI_API_KEY")),
     telegramConfigured: hasTelegramToken && hasChatIds,
     testEndpoint: "/test",
     note: "Last run details are available in Netlify function logs.",
