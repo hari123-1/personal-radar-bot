@@ -25,8 +25,29 @@ function htmlPage(result) {
     : "<li>No deliveries attempted.</li>";
 
   const summary = result.summary
-    ? `<h2>Digest</h2><pre>${escapeHtml(result.summary)}</pre>`
+    ? `<h2>Digest (${result.summary.length} chars)</h2><pre>${escapeHtml(result.summary)}</pre>`
     : "";
+
+  const selected = result.selected?.length
+    ? `<h2>Selected stories</h2><ul>${result.selected
+        .map(
+          (story) =>
+            `<li>${escapeHtml(story.title)} <em>(${escapeHtml(story.source)})</em></li>`,
+        )
+        .join("")}</ul>`
+    : "";
+
+  const timings = result.timings
+    ? `<h2>Timings</h2><ul>${Object.entries(result.timings)
+        .map(([stage, ms]) => `<li>${escapeHtml(stage)}: ${escapeHtml(ms)} ms</li>`)
+        .join("")}</ul>`
+    : "";
+
+  const selection = result.selection
+    ? result.selection.method === "ai"
+      ? `${escapeHtml(result.selection.provider)} / ${escapeHtml(result.selection.model)} (picked stories ${result.selection.picks?.join(", ")})`
+      : `heuristic fallback (picked stories ${result.selection.picks?.join(", ")})`
+    : "unknown";
 
   return `<!doctype html>
 <html lang="en">
@@ -54,7 +75,8 @@ function htmlPage(result) {
       <p>Status: <span class="badge ${result.ok ? "ok" : "fail"}">${result.ok ? "SUCCESS" : "FAILED"}</span></p>
       <p>Duration: ${result.durationMs ?? "?"} ms</p>
       <p>Sources: Hacker News ${result.sources?.hackerNews ?? 0}, Dev.to ${result.sources?.devTo ?? 0}</p>
-      <p>AI: ${
+      <p>Selection: ${selection}</p>
+      <p>Writer: ${
         result.ai?.used
           ? `${escapeHtml(result.ai.provider)} / ${escapeHtml(result.ai.model)}${
               result.ai.fallback ? " (fallback)" : ""
@@ -65,6 +87,8 @@ function htmlPage(result) {
       <ul>${deliveries}</ul>
       <h2>Warnings</h2>
       ${warnings}
+      ${selected}
+      ${timings}
       ${summary}
       <p><a href="/">← Back to status</a></p>
     </div>
@@ -88,7 +112,8 @@ export default async (req) => {
     );
   }
 
-  const result = await runRadar({ includeSummary: true });
+  const dryRun = url.searchParams.get("dry") === "1";
+  const result = await runRadar({ dryRun, includeSummary: true });
   const wantsHtml = (req.headers.get("accept") || "").includes("text/html");
 
   if (wantsHtml) {

@@ -1,8 +1,8 @@
 import {
   env,
   getNextRun,
-  GROQ_PRIMARY_MODEL,
-  GROQ_FALLBACK_MODEL,
+  GROQ_WRITER_MODEL,
+  GROQ_SELECTOR_MODEL,
   GEMINI_FALLBACK_MODEL,
 } from "./_lib/radar.mjs";
 
@@ -25,16 +25,29 @@ export default async () => {
       timeStyle: "long",
     }),
     sources: ["Hacker News", "Dev.to"],
-    aiChain: `Groq ${GROQ_PRIMARY_MODEL} → Groq ${GROQ_FALLBACK_MODEL} → Gemini ${GEMINI_FALLBACK_MODEL}`,
+    digest: {
+      storiesPerRun: 2,
+      style: "Beginner-friendly deep dive: what happened + why it matters",
+      maxTelegramChars: 3800,
+      targetRuntimeMs: 8500,
+    },
+    aiChain: `Select: Groq ${GROQ_SELECTOR_MODEL} → Write: Groq ${GROQ_WRITER_MODEL} → Groq ${GROQ_SELECTOR_MODEL} → Gemini ${GEMINI_FALLBACK_MODEL}`,
     ai: {
-      primary: {
+      selector: {
         provider: "Groq",
-        model: GROQ_PRIMARY_MODEL,
-        timeoutMs: 4000,
+        model: GROQ_SELECTOR_MODEL,
+        role: "Picks the 2 most impactful stories",
+        timeoutMs: 2500,
       },
-      fallback: {
+      writer: {
         provider: "Groq",
-        model: GROQ_FALLBACK_MODEL,
+        model: GROQ_WRITER_MODEL,
+        role: "Writes the beginner-friendly deep dive",
+        timeoutMs: 4500,
+      },
+      writerFallback: {
+        provider: "Groq",
+        model: GROQ_SELECTOR_MODEL,
         timeoutMs: 3000,
       },
       lastResort: {
